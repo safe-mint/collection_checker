@@ -35,31 +35,116 @@ async function getAllCollections(base) {
     })
 }
 
-const collection = getAllCollections(base);
+async function getAllApplicants(base) {
+    return new Promise((resolve, reject) => {
+        const applicants = []
+        base('Applicants').select({
+            view: "Grid view",
+            filterByFormula: "{NFTs Owned} = ''"
+        }).eachPage((records, fetchNextPage) => {
+            records.forEach((record) => {
+                applicants.push(record);
+            });
+            fetchNextPage();
+        }, function done(err) {
+            if (err) {
+                console.log('error!')
+                console.error(err);
+                reject(err);
+            } else {
+                resolve(applicants);
+            }
+        })
+    })
+}
 
-collection.then(records => {
-    console.log(records[0].get("Name"))
+async function updateApplicant(applicant, collections, balances) {
+    var nftsOwned = []
+    var hasBalance = false;
+    balances.map((x, i) => {
+        if (x > 0) {
+            hasBalance = true;
+            nftsOwned.push(collections[i].get("Name"))
+        }
+    })
+    nftsOwned = nftsOwned.join(", ")
+    console.log("nftsOwned: " + nftsOwned)
+    if (nftsOwned.trim().length == 0) {
+        nftsOwned = "[none]"
+    }
+    base('Applicants').update([
+        {
+          "id": applicant.id,
+          "fields": {
+            "NFTs Owned": nftsOwned,
+            "Ownership Checked Last": Date.now()
+          }
+        }], function(err, records) {
+            if (err) {
+              console.error(err);
+              return;
+            }
+            // records.forEach(function(record) {
+            //   console.log(record.get('ABI'));
+            // });
+        }
+    );
+}
+
+const collectionsDB = getAllCollections(base);
+const applicantsDB = getAllApplicants(base);
+Promise.all([collectionsDB, applicantsDB]).then(values => {
+
+    processDBs(values);
+    
 })
+
+async function processDBs(values, base) {
+    const theCollections = values[0];
+    const theApplicants = values[1];
+    for(var i=0; i<theCollections.length; i++) {
+        console.log(theCollections[i].get("Name"))
+    }
+    for(var i=0; i<theApplicants.length; i++) {
+        console.log(theApplicants[i].id);
+        //console.log(theApplicants[i].get("Twitter Handle"))
+        //console.log(theApplicants[i].get("NFTs Owned"))
+    }
+
+    let collectionChecker = new CollectionChecker(process.env.INFURA_ID, theCollections);
+    for(const applicant of theApplicants) {
+        const address = applicant.get("Wallet");
+        console.log(address)
+        balances = await collectionChecker.checkCollections(address);
+        console.log("balances: " + balances)
+
+        updateApplicant(applicant, theCollections, balances);
+
+    }
+}
+
 
 
 class CollectionChecker {
   web3;
-  account;
+  collections;
 
-  constructor(projectId, account) {
+  constructor(projectId, collections) {
       this.web3 = new Web3(new Web3.providers.HttpProvider('https://mainnet.infura.io/v3/' + projectId));
+      this.collections = collections;
   }
 
   async checkCollections(address) {
-    address = address.toLowerCase();
-    for (const collection of COLLECTIONS) {
-      const abi = JSON.parse(collection[2]);
-      const contract = new this.web3.eth.Contract(abi, collection[1]); // (abi, contract_address)
-      //contract.defaultAccount = this.account
+    const balances = []
+    address = address.toLowerCase().trim();
+    for (const collection of this.collections) {
+      const abi = JSON.parse(collection.get("ABI"));
+      const contract = new this.web3.eth.Contract(abi, collection.get("Contract")); // (abi, contract_address)
+      contract.defaultAccount = address
       const balance = await contract.methods.balanceOf(address).call()
-      console.log(address + " has " + balance + " " + collection[0]);
-
+      balances.push(balance)
     }
+    return balances;
   }
 }
 
