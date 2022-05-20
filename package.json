@@ -1,7 +1,9 @@
 {
   "dependencies": {
     "airtable": "^0.11.2",
+    "csv": "^6.0.5",
     "dotenv": "^16.0.0",
-    "web3": "^1.7.1"
+    "web3": "^1.7.1",
+    "web3-eth-ens": "^1.7.3"
   }
 }
